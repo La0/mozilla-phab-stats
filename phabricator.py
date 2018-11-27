@@ -3,10 +3,15 @@ from urllib.parse import urlencode
 import json
 import hashlib
 import os
+import re
+import csv
 
 CACHE = os.path.join(os.path.dirname(__file__), 'cache')
 BASE_URL = 'https://phabricator.services.mozilla.com/api/'
 TOKEN = os.environ['PHABRICATOR_TOKEN']
+REGEX_TOTAL = re.compile(r'found (\d+) defects?')
+REGEX_ANALYZER = re.compile(r'(\d+) defects? found by ([\w\-]+)')
+FIELDS = ('revision', 'comment', 'created', 'clang-tidy', 'clang-format', 'infer', 'mozlint', 'total')
 
 
 
@@ -26,7 +31,6 @@ def request(method, **params):
     h = hashlib.md5(payload.encode('utf-8')).hexdigest()
     cache = os.path.join(CACHE, '{}.json'.format(h))
     if os.path.exists(cache):
-        print('Reuse {}'.format(cache))
         return json.load(open(cache))
 
     # Make the request
@@ -98,6 +102,22 @@ def comments(object_phid, author_phid):
         if after is None:
             break
 
+def parse_comment(comment):
+    '''
+    Extract stats from a code review comment
+    '''
+    total = REGEX_TOTAL.search(comment)
+    assert total is not None, 'Parser failure: {}'.format(comment)
+
+    out = {
+        name: int(nb)
+        for nb, name in REGEX_ANALYZER.findall(comment)
+    }
+    out['total'] = int(total.group(1))
+
+    return out
+
+
 if __name__ == '__main__':
     bot = 'PHID-USER-cje4weq32o3xyuegalpj'
 
@@ -108,8 +128,19 @@ if __name__ == '__main__':
     }
     print('Got {} phabricator objects to analyze'.format(len(objects)))
 
+    # Setup csv output
+    writer = csv.DictWriter(open('stats.csv', 'w'), fieldnames=FIELDS)
+    writer.writeheader()
+
+    # List comments for each object
     for obj_phid in objects:
-        for x in comments(obj_phid, bot):
-            print(x['content']['raw'])
+        for comment in comments(obj_phid, bot):
+            item = {
+                'revision': obj_phid,
+                'created': comment['dateCreated'],
+                'comment': comment['id']
+            }
+            item.update(parse_comment(comment['content']['raw']))
+            writer.writerow(item)
 
     print('All done.')
