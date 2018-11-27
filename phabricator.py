@@ -48,12 +48,32 @@ def request(method, **params):
     with open(cache, 'wb') as f:
         f.write(resp.content)
 
+    return data
+
 
 def feed(user_phid):
     assert user_phid.startswith('PHID-USER')
-    request('feed.query', filterPHIDs=[user_phid, ])
 
+    key = None
+    while True:
+
+        # Request transactions
+        data = request('feed.query', filterPHIDs=[user_phid, ], after=key)
+
+        results = data['result']
+        if not results:
+            break
+        results = sorted(results.values(), key=lambda x: x['chronologicalKey'])
+
+        for story in results:
+            yield story['data']
+
+        # Next page
+        key = results[0]['chronologicalKey']
 
 
 if __name__ == '__main__':
-    feed('PHID-USER-cje4weq32o3xyuegalpj')
+    for transaction in feed('PHID-USER-cje4weq32o3xyuegalpj'):
+        print(transaction['objectPHID'])
+
+    print('All done.')
