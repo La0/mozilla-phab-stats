@@ -47,11 +47,15 @@ def request(method, **params):
 
     with open(cache, 'wb') as f:
         f.write(resp.content)
+        print('Saved {}'.format(cache))
 
     return data
 
 
 def feed(user_phid):
+    '''
+    List all transactions for a user
+    '''
     assert user_phid.startswith('PHID-USER')
 
     key = None
@@ -71,9 +75,41 @@ def feed(user_phid):
         # Next page
         key = results[0]['chronologicalKey']
 
+def comments(object_phid, author_phid):
+    '''
+    Get all comments for an object, from a specific author
+    '''
+
+    after = None
+    while True:
+
+        data = request('transaction.search', objectIdentifier=object_phid, after=after)
+        results = data['result']['data']
+        if not results:
+            break
+        transactions = filter(lambda x: x['type'] == 'comment' and x['authorPHID'] == author_phid, results)
+
+        for tr in transactions:
+            for comment in tr['comments']:
+                yield comment
+
+        # next page ?
+        after = data['result']['cursor']['after']
+        if after is None:
+            break
 
 if __name__ == '__main__':
-    for transaction in feed('PHID-USER-cje4weq32o3xyuegalpj'):
-        print(transaction['objectPHID'])
+    bot = 'PHID-USER-cje4weq32o3xyuegalpj'
+
+    # Get all distinct objects
+    objects = {
+        transaction['objectPHID']
+        for transaction in feed(bot)
+    }
+    print('Got {} phabricator objects to analyze'.format(len(objects)))
+
+    for obj_phid in objects:
+        for x in comments(obj_phid, bot):
+            print(x['content']['raw'])
 
     print('All done.')
